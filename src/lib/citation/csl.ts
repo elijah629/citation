@@ -1,9 +1,9 @@
-import { CSL, DatePartial } from "@/types/csl";
-import { z } from "zod";
+import type { infer as Infer } from "zod";
+import type { CSL, DatePartial } from "@/types/csl";
 import { mla9 } from "./formats/mla9";
 
 export type Citation = {
-  mla9: z.infer<typeof mla9>;
+  mla9: Infer<typeof mla9>;
 };
 
 export function convertCSL<T extends keyof Citation>(

@@ -1,5 +1,5 @@
+import type { Document } from "@contentful/rich-text-types";
 import z from "zod";
-import { Document } from "@contentful/rich-text-types";
 
 export const citationFormSchema = z.object({
   url: z.url(),

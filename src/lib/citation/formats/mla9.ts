@@ -1,12 +1,13 @@
-import { BLOCKS, Document, Text } from "@contentful/rich-text-types";
-import { z } from "zod";
-import { Citation } from "../csl";
+import type { Document, Text } from "@contentful/rich-text-types";
+import { BLOCKS } from "@contentful/rich-text-types";
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
+import { z } from "zod";
 import {
   fuseContributionLists,
   improveMLA9AccuracyFromArticleAI,
 } from "@/app/actions";
+import type { Citation } from "../csl";
 
 export const contributorsSchema = z
   .object({
@@ -45,28 +46,29 @@ export async function improveMLA9Accuracy(
   const doc = new JSDOM(webpageBody).window.document;
   const article = new Readability(doc).parse();
 
-  let newMLA: Citation["mla9"] = mla9;
+  const readabilityCitation: Citation["mla9"] | undefined = article
+    ? {
+        page: {
+          title: article.title || mla9.page?.title,
+          date_accessed: mla9.page?.date_accessed,
+          url: mla9.page?.url,
+          date_published: article.publishedTime
+            ? new Date(article.publishedTime).toISOString()
+            : mla9.page?.date_published,
+        },
+        website: {
+          name: article.siteName || mla9.website?.name,
+          publisher: mla9.website?.publisher,
+        },
+        contributors:
+          (await fuseContributionLists({
+            byline: article.byline,
+            contributors: mla9.contributors,
+          })) ?? mla9.contributors,
+      }
+    : undefined;
 
-  if (article) {
-    newMLA = {
-      page: {
-        title: article.title || mla9.page?.title,
-        date_accessed: mla9.page?.date_accessed,
-        url: mla9.page?.url,
-        date_published: article.publishedTime
-          ? new Date(article.publishedTime)
-          : mla9.page?.date_accessed,
-      },
-      website: {
-        name: article.siteName || mla9.website?.name,
-        publisher: mla9.website?.publisher,
-      },
-      contributors: await fuseContributionLists({
-        byline: article.byline,
-        contributors: mla9.contributors,
-      }),
-    } as Citation["mla9"];
-  }
+  const baseCitation = readabilityCitation ?? mla9;
 
   // Fallback to whatever this is
   // Very bad parser and should be replaced/improved
@@ -74,36 +76,36 @@ export async function improveMLA9Accuracy(
     ? article.textContent
     : doc.body.innerText
         .replaceAll(/[\n\t]+/g, " ") // AHHHHHHHHHHH
-        .replaceAll(/ class=([\'\"]).*\1/g, "");
+        .replaceAll(/ class=(["']).*\1/g, "");
 
   try {
     // Solution: Paste it all into an LLM
     const improvedMLA = await improveMLA9AccuracyFromArticleAI(
-      mla9,
+      baseCitation,
       textContent,
     );
 
     return improvedMLA;
   } catch (e) {
     console.error(e);
-    return newMLA;
+    return baseCitation;
   }
 }
 
 export function formatMLA9(data: Citation["mla9"]): Document {
   const content: Text[] = [];
 
-  if (data.contributors?.authors?.length) {
-    content.push(
-      createTextNode(
-        format_names(data.contributors.authors) +
-          (data.contributors.authors.length === 1 ||
-          data.contributors.authors.length === 2
-            ? "."
-            : "") +
-          " ",
-      ),
-    );
+  const authors =
+    data.contributors?.authors?.map((name) => name.trim()).filter(Boolean) ??
+    [];
+  const editors =
+    data.contributors?.editors?.map((name) => name.trim()).filter(Boolean) ??
+    [];
+
+  const formattedAuthors = format_authors(authors);
+
+  if (formattedAuthors) {
+    content.push(createTextNode(`${formattedAuthors} `));
   }
 
   if (data.page?.title) {
@@ -111,41 +113,52 @@ export function formatMLA9(data: Citation["mla9"]): Document {
   }
 
   if (data.website?.name) {
-    content.push(
-      createTextNode(data.website.name + ", ", [{ type: "italic" }]),
-    );
+    content.push(createTextNode(data.website.name, [{ type: "italic" }]));
+    content.push(createTextNode(", "));
   }
 
-  if (data.contributors?.editors?.length) {
+  if (editors.length) {
+    content.push(createTextNode(`edited by ${format_editors(editors)}, `));
+  }
+
+  if (data.website?.publisher) {
+    content.push(createTextNode(`${data.website.publisher}, `));
+  }
+
+  if (data.page?.date_published) {
+    const hasLocation = data.page.url || data.page.date_accessed;
     content.push(
       createTextNode(
-        "edited by " + format_names(data.contributors.editors) + ", ",
+        `${format_date(new Date(data.page.date_published))}${hasLocation ? ", " : "."}`,
       ),
     );
   }
 
-  if (data.website?.publisher) {
-    content.push(createTextNode(data.website.publisher + ", "));
+  if (data.page?.url) {
+    const hasAccessedDate = Boolean(data.page.date_accessed);
+    content.push(
+      createTextNode(
+        `${format_url(data.page.url)}${hasAccessedDate ? ". " : "."}`,
+      ),
+    );
   }
 
-  if (data.page) {
-    if (data.page.date_published) {
-      content.push(
-        createTextNode(format_date(new Date(data.page.date_published)) + ", "),
-      );
+  if (data.page?.date_accessed) {
+    if (!data.page.url && content.length) {
+      const last = content[content.length - 1];
+      const trimmed = last.value.trimEnd();
+      if (!trimmed.endsWith(".")) {
+        last.value = `${trimmed.replace(/[,;:]$/, "")}. `;
+      } else if (!trimmed.endsWith(". ")) {
+        last.value = `${trimmed} `;
+      }
     }
 
-    if (data.page.url) {
-      content.push(createTextNode(format_url(data.page.url) + ". "));
-    }
-
-    if (data.page.date_accessed) {
-      content.push(
-        createTextNode(
-          "Accessed " + format_date(new Date(data.page.date_accessed)) + ".",
-        ),
-      );
-    }
+    content.push(
+      createTextNode(
+        `Accessed ${format_date(new Date(data.page.date_accessed))}.`,
+      ),
+    );
   }
 
   return {
@@ -171,14 +184,32 @@ function format_name(name: string) {
   return `${last}, ${first.join(" ")}`;
 }
 
-function format_names(names: string[]) {
-  if (names.length === 1) {
-    return format_name(names[0]);
-  } else if (names.length === 2) {
-    return format_name(names[0]) + ", and " + names[1];
-  } else if (names.length >= 3) {
-    return format_name(names[0]) + ", et al.";
+function format_authors(names: string[]) {
+  if (!names.length) {
+    return "";
   }
+
+  if (names.length === 1) {
+    return `${format_name(names[0])}.`;
+  }
+
+  if (names.length === 2) {
+    return `${format_name(names[0])}, and ${names[1]}.`;
+  }
+
+  return `${format_name(names[0])}, et al.`;
+}
+
+function format_editors(names: string[]) {
+  if (names.length === 1) {
+    return names[0];
+  }
+
+  if (names.length === 2) {
+    return `${names[0]} and ${names[1]}`;
+  }
+
+  return `${names[0]}, et al.`;
 }
 
 function format_date(date: Date) {

@@ -1,17 +1,20 @@
 "use server";
 
 import { generateObject } from "ai";
-import { citationFormSchema, CitationFormState } from "@/lib/citation/form";
-import { CSL } from "@/types/csl";
-import { Citation, convertCSL } from "@/lib/citation/csl";
+import { type Citation, convertCSL } from "@/lib/citation/csl";
+import {
+  type CitationFormState,
+  citationFormSchema,
+} from "@/lib/citation/form";
 import {
   contributorsSchema,
   formatMLA9,
   improveMLA9Accuracy,
+  type MLA9Contributors,
   mla9,
-  MLA9Contributors,
 } from "@/lib/citation/formats/mla9";
 import { hackclub } from "@/lib/hackclub";
+import type { CSL } from "@/types/csl";
 
 export async function createCitation(
   initialState: CitationFormState,

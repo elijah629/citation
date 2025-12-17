@@ -1,14 +1,15 @@
 "use client";
 
-import { createCitation } from "@/app/actions";
-import { useActionState, useRef } from "react";
-import Form from "next/form";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Button } from "./ui/button";
-import { CitationFormState } from "@/lib/citation/form";
 import { documentToReactComponents } from "@contentful/rich-text-react-renderer";
 import { Tinos } from "next/font/google";
+import Form from "next/form";
+import { useActionState, useRef } from "react";
+
+import { createCitation } from "@/app/actions";
+import type { CitationFormState } from "@/lib/citation/form";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 const initialState: CitationFormState = {
   type: "ready",
@@ -48,27 +49,64 @@ export function CitationForm() {
   }
 
   return (
-    <Form action={formAction} className="flex flex-col gap-4 p-4 border m-4">
-      <Label htmlFor="url">URL</Label>
-      <Input type="url" id="url" name="url" required />
-      <p>
-        Your URL will be sent to Chegg&apos;s API, and fetched through
-        Vercel&apos;s servers. It is formatted using a custom{" "}
-        <strong>MLA 9</strong> formatter. The content of the website will be
-        parsed by <strong>Readability.js</strong> and sent to{" "}
-        <strong>Hackclub AI</strong> to use an LLM to improve the citation based
-        on the website content.{" "}
-        <strong>
-          Please note: this process is not well-suited for entire websites and
-          works best for individual articles.
-        </strong>
-      </p>
-      {state?.type === "error" && <p aria-live="polite">{state.message}</p>}
-      <Button disabled={pending} type="submit">
-        Fetch
-      </Button>
+    <Form
+      action={formAction}
+      className="space-y-6 rounded-3xl border bg-card/70 p-6 shadow-sm backdrop-blur"
+    >
+      <div className="space-y-3">
+        <div className="flex flex-col gap-2">
+          <Label className="text-base font-semibold" htmlFor="url">
+            Paste a URL to cite
+          </Label>
+          <p className="text-sm text-muted-foreground">
+            We&apos;ll fetch the page, follow MLA 9 works cited rules, and
+            return a polished entry you can drop into your bibliography.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Input
+            type="url"
+            id="url"
+            name="url"
+            required
+            className="h-12 flex-1 text-base"
+            placeholder="https://example.com/article"
+          />
+          <Button disabled={pending} type="submit" className="h-12 px-6">
+            {pending ? "Fetching…" : "Fetch citation"}
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Your URL is sent to Chegg&apos;s API through Vercel to build the
+          citation, parsed with Readability, and refined by Hackclub AI for MLA
+          9 accuracy. Best for individual articles, not entire sites.
+        </p>
+      </div>
+
+      {state?.type === "error" && (
+        <p aria-live="polite" className="text-sm text-destructive">
+          {state.message}
+        </p>
+      )}
+
       {state?.type === "success" && (
-        <>
+        <div className="space-y-4 rounded-2xl border bg-muted/30 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Works cited entry
+            </p>
+            <Button
+              onClick={handleCopy}
+              type="button"
+              variant="secondary"
+              size="sm"
+            >
+              Copy
+            </Button>
+          </div>
+
           {/* Not using tailwind for rich-text copy support */}
           <div className={tinos.className}>
             <div
@@ -83,8 +121,7 @@ export function CitationForm() {
               {documentToReactComponents(state.citation)}
             </div>
           </div>
-          <Button onClick={handleCopy}>Copy</Button>
-        </>
+        </div>
       )}
     </Form>
   );
