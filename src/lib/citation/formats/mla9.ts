@@ -1,7 +1,7 @@
 import type { Document, Text } from "@contentful/rich-text-types";
 import { BLOCKS } from "@contentful/rich-text-types";
 import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
+import { parseHTML } from "linkedom";
 import { z } from "zod";
 import {
   fuseContributionLists,
@@ -43,8 +43,8 @@ export async function improveMLA9Accuracy(
   mla9: Citation["mla9"],
   webpageBody: string,
 ): Promise<Citation["mla9"]> {
-  const doc = new JSDOM(webpageBody).window.document;
-  const article = new Readability(doc).parse();
+  const { document } = parseHTML(webpageBody);
+  const article = new Readability(document).parse();
 
   const readabilityCitation: Citation["mla9"] | undefined = article
     ? {
@@ -74,7 +74,7 @@ export async function improveMLA9Accuracy(
   // Very bad parser and should be replaced/improved
   const textContent = article?.textContent
     ? article.textContent
-    : doc.body.innerText
+    : document.body.innerText
         .replaceAll(/[\n\t]+/g, " ") // AHHHHHHHHHHH
         .replaceAll(/ class=(["']).*\1/g, "");
 
