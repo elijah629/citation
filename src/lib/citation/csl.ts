@@ -12,28 +12,30 @@ export function convertCSL<T extends keyof Citation>(
 ): Citation[T] {
   switch (to) {
     case "mla9":
-      return mla9.parse({
+      return {
         contributors: {
-          editors: csl.editor?.map(
-            (x) => x.literal ?? [x.given, x.family, x.suffix].join(" ").trim(),
-          ),
-          authors: csl.author?.map(
-            (x) => x.literal ?? [x.given, x.family, x.suffix].join(" ").trim(),
-          ),
+          editors:
+            csl.editor?.map(
+              (x) =>
+                x.literal ?? [x.given, x.family, x.suffix].join(" ").trim(),
+            ) ?? [],
+          authors:
+            csl.author?.map(
+              (x) =>
+                x.literal ?? [x.given, x.family, x.suffix].join(" ").trim(),
+            ) ?? [],
         },
         page: {
-          title: csl.title,
-          date_published:
-            convertDatePartialToDateString(csl.issued) || undefined,
-          url: csl.URL,
-          date_accessed:
-            convertDatePartialToDateString(csl.accessed) || undefined,
+          title: csl.title || null,
+          date_published: convertDatePartialToDateString(csl.issued),
+          url: csl.URL || null,
+          date_accessed: convertDatePartialToDateString(csl.accessed),
         },
         website: {
-          name: csl["title-short"] || undefined,
-          publisher: csl.publisher || undefined,
+          name: csl["title-short"] || null,
+          publisher: csl.publisher || null,
         },
-      });
+      };
   }
 }
 

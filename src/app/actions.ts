@@ -72,15 +72,20 @@ export async function improveMLA9AccuracyFromArticleAI(
 ): Promise<Citation["mla9"]> {
   try {
     const { object } = await generateObject({
-      model: hackclub("openai/gpt-5.1"),
+      model: hackclub("openai/gpt-5.1", {
+        reasoning: {
+          effort: "none" as "low",
+        },
+      }),
       system:
-        "Given an MLA9 Citation expressed in JSON and a webpage article's text, modify the citation to increace the accuracy of it based on the article. Return an object in the same format as the MLA9 input, include all existing parameters as well as your adjusted ones. Your task is to generate MLA citations based on the provided webpage text. Dates must be ISO 8601 calendar date extended format strings. Treat last updated dates as published dates.",
+        "Given an MLA9 Citation expressed in JSON and a webpage article's text, modify the citation to increace the accuracy of it based on the article. Return an object in the same format as the MLA9 input, include all existing parameters as well as your adjusted ones. Your task is to generate MLA citations based on the provided webpage text. Dates must be ISO 8601 calendar date extended format strings. Treat last updated dates as published dates. Assume publisher from website name or journaling container if not specified elsewhere.",
       prompt: `Existing citation \`\`\`${JSON.stringify(citation)}\`\`\`\n---\nArticle:\n${article}`,
       schema: mla9,
     });
 
     return object;
   } catch (e) {
+    console.error(e);
     return citation;
   }
 }
@@ -89,16 +94,20 @@ export async function fuseContributionLists({
   byline,
   contributors,
 }: {
-  byline?: string | null;
-  contributors?: MLA9Contributors;
-}): Promise<MLA9Contributors | undefined> {
+  byline: string | null;
+  contributors: MLA9Contributors | null;
+}): Promise<MLA9Contributors | null> {
   if (!byline && !contributors) {
-    return undefined;
+    return null;
   }
 
   try {
     const { object } = await generateObject({
-      model: hackclub("openai/gpt-5.1"),
+      model: hackclub("openai/gpt-5.1", {
+        reasoning: {
+          effort: "none" as "low",
+        },
+      }),
       schema: contributorsSchema,
       system:
         "Given a contributor list as JSON and a byline, produce a new contributor list in the same JSON schema as the input by adding all individuals named in the byline. Preserve existing contributors, do not duplicate contributors, and normalize name.",
@@ -112,6 +121,7 @@ export async function fuseContributionLists({
 
     return object;
   } catch (e) {
+    console.error(e);
     return contributors;
   }
 }

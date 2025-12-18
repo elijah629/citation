@@ -2,7 +2,10 @@ import type { Document } from "@contentful/rich-text-types";
 import z from "zod";
 
 export const citationFormSchema = z.object({
-  url: z.url(),
+  url: z.url({
+    protocol: /^(http|https)?$/,
+    hostname: z.regexes.domain,
+  }),
 });
 
 export type CitationFormState =

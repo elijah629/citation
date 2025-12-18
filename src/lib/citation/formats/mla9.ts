@@ -11,32 +11,32 @@ import {
 import type { Citation } from "../csl";
 export const contributorsSchema = z
   .object({
-    authors: z.array(z.string()),
-    editors: z.array(z.string()),
+    authors: z.array(z.string()).nullable(),
+    editors: z.array(z.string()).nullable(),
   })
-  .partial();
+  .strict();
 
 export type MLA9Contributors = z.infer<typeof contributorsSchema>;
 
 export const mla9 = z
   .object({
-    contributors: contributorsSchema,
+    contributors: contributorsSchema.nullable(),
     page: z
       .object({
-        title: z.string(),
-        date_published: z.string(), // ISO
-        url: z.url(),
-        date_accessed: z.string(), // ISO
+        title: z.string().nullable(),
+        url: z.string().nullable(),
+        date_published: z.iso.date().nullable(),
+        date_accessed: z.iso.date().nullable(),
       })
-      .partial(),
+      .strict(),
     website: z
       .object({
-        name: z.string(),
-        publisher: z.string(),
+        name: z.string().nullable(),
+        publisher: z.string().nullable(),
       })
-      .partial(),
+      .strict(),
   })
-  .partial();
+  .strict();
 
 // Returns original if something didn't work
 export async function improveMLA9Accuracy(
@@ -60,7 +60,7 @@ export async function improveMLA9Accuracy(
           publisher: mla9.website?.publisher,
         },
         contributors: await fuseContributionLists({
-          byline: article.byline,
+          byline: article.byline ?? null,
           contributors: mla9.contributors,
         }),
       }
@@ -68,7 +68,7 @@ export async function improveMLA9Accuracy(
 
   const baseCitation = readabilityCitation ?? mla9;
 
-  const textContent = doc.body.innerText;
+  const textContent = article?.textContent ?? webpageBody;
 
   // Solution: Paste it all into an LLM
   const improvedMLA = await improveMLA9AccuracyFromArticleAI(
@@ -78,7 +78,11 @@ export async function improveMLA9Accuracy(
 
   improvedMLA.page!.date_accessed ??= new Date().toISOString();
 
-  console.log(baseCitation, improvedMLA);
+  console.log(
+    baseCitation,
+    improvedMLA,
+    JSON.stringify(baseCitation) === JSON.stringify(improvedMLA),
+  );
 
   return improvedMLA;
 }
@@ -98,7 +102,10 @@ export function formatMLA9(data: Citation["mla9"]): Document {
 
   const hasWebsiteName = Boolean(data.website?.name?.trim());
   const publisher =
-    dedupePublisher(data.website?.publisher, data.website?.name) ?? undefined;
+    dedupePublisher(
+      data.website?.publisher ?? undefined,
+      data.website?.name ?? undefined,
+    ) ?? undefined;
 
   const hasPublisher = Boolean(publisher?.trim());
   const hasPublishedDate = Boolean(data.page?.date_published);
