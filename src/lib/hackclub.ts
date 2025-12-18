@@ -1,7 +1,7 @@
 import {
   createOpenRouter,
-  OpenRouterProvider,
-  OpenRouterProviderSettings,
+  type OpenRouterProvider,
+  type OpenRouterProviderSettings,
 } from "@openrouter/ai-sdk-provider";
 
 const BASE = "https://ai.hackclub.com/proxy/v1";

@@ -1,91 +1,88 @@
 "use client";
 
-import { createCitation } from "@/app/actions";
-import { useActionState, useRef } from "react";
 import Form from "next/form";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { useActionState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { createCitation } from "@/app/actions";
+import type { CitationFormState } from "@/lib/citation/form";
 import { Button } from "./ui/button";
-import { CitationFormState } from "@/lib/citation/form";
-import { documentToReactComponents } from "@contentful/rich-text-react-renderer";
-import { Tinos } from "next/font/google";
+import { Input } from "./ui/input";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldSet,
+} from "@/components/ui/field";
+import { RichTextEntry } from "./rich-text-entry";
 
 const initialState: CitationFormState = {
   type: "ready",
-  url: "",
 };
-
-const tinos = Tinos({
-  subsets: ["latin"],
-  weight: ["400"],
-});
 
 export function CitationForm() {
   const [state, formAction, pending] = useActionState(
     createCitation,
     initialState,
   );
-  const copyRef = useRef<HTMLDivElement>(null);
-
-  async function handleCopy() {
-    if (!copyRef.current) {
-      return;
-    }
-
-    const htmlBlob = new Blob([copyRef.current.outerHTML], {
-      type: "text/html",
-    });
-    const textBlob = new Blob([copyRef.current.innerText], {
-      type: "text/plain",
-    });
-
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        "text/html": htmlBlob,
-        "text/plain": textBlob,
-      }),
-    ]);
-  }
 
   return (
-    <Form action={formAction} className="flex flex-col gap-4 p-4 border m-4">
-      <Label htmlFor="url">URL</Label>
-      <Input type="url" id="url" name="url" required />
-      <p>
-        Your URL will be sent to Chegg&apos;s API, and fetched through
-        Vercel&apos;s servers. It is formatted using a custom{" "}
-        <strong>MLA 9</strong> formatter. The content of the website will be
-        parsed by <strong>Readability.js</strong> and sent to{" "}
-        <strong>Hackclub AI</strong> to use an LLM to improve the citation based
-        on the website content.{" "}
-        <strong>
-          Please note: this process is not well-suited for entire websites and
-          works best for individual articles.
-        </strong>
-      </p>
-      {state?.type === "error" && <p aria-live="polite">{state.message}</p>}
-      <Button disabled={pending} type="submit">
-        Fetch
-      </Button>
-      {state?.type === "success" && (
-        <>
-          {/* Not using tailwind for rich-text copy support */}
-          <div className={tinos.className}>
-            <div
-              ref={copyRef}
-              style={{
-                marginLeft: 36,
-                textIndent: -36,
-                overflowWrap: "break-word",
-                fontSize: "12pt",
-              }}
-            >
-              {documentToReactComponents(state.citation)}
-            </div>
-          </div>
-          <Button onClick={handleCopy}>Copy</Button>
-        </>
-      )}
-    </Form>
+    <Card>
+      <CardHeader>
+        <CardTitle>Paste a URL to cite</CardTitle>
+        <CardDescription>
+          We&apos;ll fetch the page, follow MLA 9 works cited rules, and return
+          a polished entry you can drop into your bibliography.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Form action={formAction} id="mla9-form">
+          <FieldSet>
+            <FieldGroup>
+              <Field data-invalid={state.type === "error"}>
+                <FieldLabel htmlFor="mla9-form-url">Article URL</FieldLabel>
+                <Input
+                  type="url"
+                  id="mla9-form-url"
+                  name="url"
+                  aria-invalid={state.type === "error"}
+                  required
+                  placeholder="https://example.com/article"
+                />
+                <FieldDescription>
+                  Your URL is sent to Chegg&apos;s API through Vercel to build
+                  the citation, parsed with Readability, and refined by Hackclub
+                  AI for MLA 9 accuracy. Best for individual articles, not
+                  entire sites.
+                </FieldDescription>
+                {state.type === "error" && (
+                  <FieldError errors={[state.error]} />
+                )}
+              </Field>
+            </FieldGroup>
+          </FieldSet>
+          {state?.type === "success" && (
+            <RichTextEntry citation={state.citation} />
+          )}
+        </Form>
+      </CardContent>
+      <CardFooter>
+        <FieldGroup>
+          <Field orientation="responsive">
+            <Button disabled={pending} type="submit" form="mla9-form">
+              {pending ? "Fetching..." : "Fetch citation"}
+            </Button>
+          </Field>
+        </FieldGroup>
+      </CardFooter>
+    </Card>
   );
 }
