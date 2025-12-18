@@ -7,8 +7,8 @@ import {
   fuseContributionLists,
   improveMLA9AccuracyFromArticleAI,
 } from "@/app/actions";
-import type { Citation } from "../csl";
 
+import type { Citation } from "../csl";
 export const contributorsSchema = z
   .object({
     authors: z.array(z.string()),
@@ -24,9 +24,9 @@ export const mla9 = z
     page: z
       .object({
         title: z.string(),
-        date_published: z.string(), // z.coerce.date()
+        date_published: z.string(), // ISO
         url: z.url(),
-        date_accessed: z.string(), // z.coerce.date()
+        date_accessed: z.string(), // ISO
       })
       .partial(),
     website: z
@@ -43,9 +43,8 @@ export async function improveMLA9Accuracy(
   mla9: Citation["mla9"],
   webpageBody: string,
 ): Promise<Citation["mla9"]> {
-  const { document } = parseHTML(webpageBody);
-  const article = new Readability(document).parse();
-
+  const { document: doc } = parseHTML(webpageBody);
+  const article = new Readability(doc).parse();
   const readabilityCitation: Citation["mla9"] | undefined = article
     ? {
         page: {
@@ -60,106 +59,107 @@ export async function improveMLA9Accuracy(
           name: article.siteName || mla9.website?.name,
           publisher: mla9.website?.publisher,
         },
-        contributors:
-          (await fuseContributionLists({
-            byline: article.byline,
-            contributors: mla9.contributors,
-          })) ?? mla9.contributors,
+        contributors: await fuseContributionLists({
+          byline: article.byline,
+          contributors: mla9.contributors,
+        }),
       }
     : undefined;
 
   const baseCitation = readabilityCitation ?? mla9;
 
-  // Fallback to whatever this is
-  // Very bad parser and should be replaced/improved
-  const textContent = article?.textContent
-    ? article.textContent
-    : document.body.innerText
-        .replaceAll(/[\n\t]+/g, " ") // AHHHHHHHHHHH
-        .replaceAll(/ class=(["']).*\1/g, "");
+  const textContent = doc.body.innerText;
 
-  try {
-    // Solution: Paste it all into an LLM
-    const improvedMLA = await improveMLA9AccuracyFromArticleAI(
-      baseCitation,
-      textContent,
-    );
+  // Solution: Paste it all into an LLM
+  const improvedMLA = await improveMLA9AccuracyFromArticleAI(
+    baseCitation,
+    textContent,
+  );
 
-    return improvedMLA;
-  } catch (e) {
-    console.error(e);
-    return baseCitation;
-  }
+  improvedMLA.page!.date_accessed ??= new Date().toISOString();
+
+  console.log(baseCitation, improvedMLA);
+
+  return improvedMLA;
 }
+
+// --- MLA9 formatting (web page subset) ---
+// Template (relevant parts):
+// Author. "Title of source." Title of container, Other contributors, Publisher, Publication date, Location. Accessed Date.
+// (MLA core elements template)
 
 export function formatMLA9(data: Citation["mla9"]): Document {
   const content: Text[] = [];
 
   const authors =
-    data.contributors?.authors?.map((name) => name.trim()).filter(Boolean) ??
-    [];
+    data.contributors?.authors?.map((n) => n.trim()).filter(Boolean) ?? [];
   const editors =
-    data.contributors?.editors?.map((name) => name.trim()).filter(Boolean) ??
-    [];
+    data.contributors?.editors?.map((n) => n.trim()).filter(Boolean) ?? [];
 
-  const formattedAuthors = format_authors(authors);
+  const hasWebsiteName = Boolean(data.website?.name?.trim());
+  const publisher =
+    dedupePublisher(data.website?.publisher, data.website?.name) ?? undefined;
 
-  if (formattedAuthors) {
-    content.push(createTextNode(`${formattedAuthors} `));
+  const hasPublisher = Boolean(publisher?.trim());
+  const hasPublishedDate = Boolean(data.page?.date_published);
+  const hasUrl = Boolean(data.page?.url);
+  const hasAccessed = Boolean(data.page?.date_accessed);
+
+  // AUTHOR.
+  const authorStr = formatAuthors(authors);
+  if (authorStr) pushText(content, authorStr + " ");
+
+  // "TITLE OF SOURCE."
+  if (data.page?.title?.trim()) {
+    pushText(content, quoteTitle(data.page.title) + " ");
   }
 
-  if (data.page?.title) {
-    content.push(createTextNode(`“${data.page.title}.” `));
+  // TITLE OF CONTAINER,
+  if (hasWebsiteName) {
+    pushText(content, data.website!.name!.trim(), [{ type: "italic" }]);
+
+    const hasMoreAfterContainer =
+      editors.length || hasPublisher || hasPublishedDate || hasUrl;
+    pushText(content, hasMoreAfterContainer ? ", " : ". ");
   }
 
-  if (data.website?.name) {
-    content.push(createTextNode(data.website.name, [{ type: "italic" }]));
-    content.push(createTextNode(", "));
-  }
-
+  // Other contributors (EDITED BY ...),
   if (editors.length) {
-    content.push(createTextNode(`edited by ${format_editors(editors)}, `));
+    const editorsStr = `edited by ${formatEditors(editors)}`;
+    const hasMoreAfterEditors = hasPublisher || hasPublishedDate || hasUrl;
+    pushText(content, editorsStr + (hasMoreAfterEditors ? ", " : ". "));
   }
 
-  if (data.website?.publisher) {
-    content.push(createTextNode(`${data.website.publisher}, `));
-  }
-
-  if (data.page?.date_published) {
-    const hasLocation = data.page.url || data.page.date_accessed;
-    content.push(
-      createTextNode(
-        `${format_date(new Date(data.page.date_published))}${hasLocation ? ", " : "."}`,
-      ),
+  // PUBLISHER,
+  if (hasPublisher) {
+    const hasMoreAfterPublisher = hasPublishedDate || hasUrl;
+    pushText(
+      content,
+      publisher!.trim() + (hasMoreAfterPublisher ? ", " : ". "),
     );
   }
 
-  if (data.page?.url) {
-    const hasAccessedDate = Boolean(data.page.date_accessed);
-    content.push(
-      createTextNode(
-        `${format_url(data.page.url)}${hasAccessedDate ? ". " : "."}`,
-      ),
-    );
+  // PUBLICATION DATE,
+  if (hasPublishedDate) {
+    const dateStr = formatMLADate(data.page!.date_published!);
+    const hasMoreAfterDate = hasUrl;
+    pushText(content, dateStr + (hasMoreAfterDate ? ", " : ". "));
   }
 
-  if (data.page?.date_accessed) {
-    if (!data.page.url && content.length) {
-      const last = content[content.length - 1];
-      const trimmed = last.value.trimEnd();
-      if (!trimmed.endsWith(".")) {
-        last.value = `${trimmed.replace(/[,;:]$/, "")}. `;
-      } else if (!trimmed.endsWith(". ")) {
-        last.value = `${trimmed} `;
-      }
-    }
-
-    content.push(
-      createTextNode(
-        `Accessed ${format_date(new Date(data.page.date_accessed))}.`,
-      ),
-    );
+  // LOCATION (URL).  (URL without http(s) is typical.)
+  if (hasUrl) {
+    const urlStr = formatUrlForMLA(data.page!.url!);
+    // If accessed date exists, URL ends with period + space; otherwise period.
+    pushText(content, urlStr + (hasAccessed ? ". " : "."));
   }
+
+  // ACCESSED DATE.
+  if (hasAccessed) {
+    pushText(content, `Accessed ${formatMLADate(data.page!.date_accessed!)}.`);
+  }
+
+  // If we ended up with a trailing ", " (shouldn’t happen now), clean it.
+  trimTrailingCommaSpace(content);
 
   return {
     nodeType: BLOCKS.DOCUMENT,
@@ -174,76 +174,146 @@ export function formatMLA9(data: Citation["mla9"]): Document {
   };
 }
 
-function format_name(name: string) {
-  const names = name.split(" ");
-  if (names.length === 1) {
-    return name;
-  }
+// --- helpers ---
 
-  const [last, ...first] = name.split(" ").reverse();
-  return `${last}, ${first.join(" ")}`;
-}
-
-function format_authors(names: string[]) {
-  if (!names.length) {
-    return "";
-  }
-
-  if (names.length === 1) {
-    return `${format_name(names[0])}.`;
-  }
-
-  if (names.length === 2) {
-    return `${format_name(names[0])}, and ${names[1]}.`;
-  }
-
-  return `${format_name(names[0])}, et al.`;
-}
-
-function format_editors(names: string[]) {
-  if (names.length === 1) {
-    return names[0];
-  }
-
-  if (names.length === 2) {
-    return `${names[0]} and ${names[1]}`;
-  }
-
-  return `${names[0]}, et al.`;
-}
-
-function format_date(date: Date) {
-  return `${date.getDate()} ${
-    [
-      "Jan.",
-      "Feb.",
-      "Mar.",
-      "Apr.",
-      "May",
-      "June",
-      "July",
-      "Aug.",
-      "Sept.",
-      "Oct.",
-      "Nov.",
-      "Dec.",
-    ][date.getMonth()]
-  } ${date.getFullYear()}`;
-}
-
-function format_url(url: string) {
-  const u = new URL(url);
-  return u.host + (u.pathname === "/" ? "" : u.pathname) + u.search + u.hash;
-}
-
-function createTextNode(
+function pushText(
+  nodes: Text[],
   value: string,
   marks: Array<{ type: string }> = [],
-): Text {
-  return {
+) {
+  if (!value) return;
+  nodes.push({
     nodeType: "text",
     value,
     marks,
     data: {},
-  };
+  });
+}
+
+// MLA: period goes inside the quotation marks when you add it.
+function quoteTitle(raw: string) {
+  let t = raw.trim();
+  if (!t) return "";
+  // If already ends in terminal punctuation, don’t add another period.
+  if (!/[.!?]$/.test(t)) t += ".";
+  return `“${t}”`;
+}
+
+// First author: Last, First. Subsequent authors: First Last.
+// (We assume input names are "First Last" unless already "Last, First".)
+function invertNameIfNeeded(name: string) {
+  const n = name.trim();
+  if (!n) return "";
+  if (n.includes(",")) return n; // assume already inverted
+  const parts = n.split(/\s+/);
+  if (parts.length <= 1) return n;
+  const last = parts.pop()!;
+  return `${last}, ${parts.join(" ")}`;
+}
+
+function formatAuthors(names: string[]) {
+  const cleaned = names.map((n) => n.trim()).filter(Boolean);
+  if (!cleaned.length) return "";
+
+  if (cleaned.length === 1) {
+    return `${invertNameIfNeeded(cleaned[0])}.`;
+  }
+
+  if (cleaned.length === 2) {
+    // Second author stays in normal order (First Last).
+    const first = invertNameIfNeeded(cleaned[0]);
+    const second = ensureNormalOrder(cleaned[1]);
+    return `${first}, and ${second}.`;
+  }
+
+  // 3+ => first author, et al. (period in "al." serves as ending punctuation)
+  return `${invertNameIfNeeded(cleaned[0])}, et al.`;
+}
+
+function ensureNormalOrder(name: string) {
+  const n = name.trim();
+  if (!n) return "";
+  // If user already provided "Last, First", flip it back for subsequent-author position.
+  if (n.includes(",")) {
+    const [last, rest] = n.split(",", 2).map((s) => s.trim());
+    return rest ? `${rest} ${last}` : last;
+  }
+  return n;
+}
+
+function formatEditors(names: string[]) {
+  const cleaned = names.map((n) => n.trim()).filter(Boolean);
+  if (!cleaned.length) return "";
+
+  if (cleaned.length === 1) return cleaned[0];
+  if (cleaned.length === 2) return `${cleaned[0]} and ${cleaned[1]}`;
+  return `${cleaned[0]}, et al.`;
+}
+
+// Avoid timezone day-shift: interpret as UTC when given an ISO string.
+function formatMLADate(dateInput: string | Date) {
+  const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  if (Number.isNaN(d.getTime())) return String(dateInput);
+
+  const day = d.getUTCDate();
+  const month = d.getUTCMonth();
+  const year = d.getUTCFullYear();
+
+  const months = [
+    "Jan.",
+    "Feb.",
+    "Mar.",
+    "Apr.",
+    "May",
+    "June",
+    "July",
+    "Aug.",
+    "Sept.",
+    "Oct.",
+    "Nov.",
+    "Dec.",
+  ] as const;
+
+  return `${day} ${months[month]} ${year}`;
+}
+
+// MLA commonly uses URL without protocol; also strip fragments and common tracking params.
+function formatUrlForMLA(rawUrl: string) {
+  const u = new URL(rawUrl);
+
+  // Drop fragments (rarely useful in Works Cited)
+  u.hash = "";
+
+  // Drop common tracking params
+  const dropPrefixes = ["utm_"];
+  const dropExact = new Set(["fbclid", "gclid", "mc_cid", "mc_eid"]);
+  for (const [k] of u.searchParams) {
+    if (dropExact.has(k) || dropPrefixes.some((p) => k.startsWith(p))) {
+      u.searchParams.delete(k);
+    }
+  }
+
+  // Remove trailing slash (except root)
+  let path = u.pathname;
+  if (path !== "/" && path.endsWith("/")) path = path.slice(0, -1);
+
+  const search = u.searchParams.toString();
+  return u.host + (path === "/" ? "" : path) + (search ? `?${search}` : "");
+}
+
+// If publisher == website name, omit publisher (common MLA instruction in many guides).
+function dedupePublisher(publisher?: string, siteName?: string) {
+  const p = publisher?.trim();
+  const s = siteName?.trim();
+  if (!p) return undefined;
+  if (s && p.localeCompare(s, undefined, { sensitivity: "accent" }) === 0) {
+    return undefined;
+  }
+  return p;
+}
+
+function trimTrailingCommaSpace(nodes: Text[]) {
+  const last = nodes[nodes.length - 1];
+  if (!last) return;
+  last.value = last.value.replace(/,\s+$/, ". ");
 }

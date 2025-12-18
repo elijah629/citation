@@ -8,7 +8,7 @@ export type Citation = {
 
 export function convertCSL<T extends keyof Citation>(
   csl: CSL,
-  to: "mla9",
+  to: T,
 ): Citation[T] {
   switch (to) {
     case "mla9":
@@ -27,8 +27,7 @@ export function convertCSL<T extends keyof Citation>(
             convertDatePartialToDateString(csl.issued) || undefined,
           url: csl.URL,
           date_accessed:
-            convertDatePartialToDateString(csl.accessed) ||
-            new Date().toISOString(),
+            convertDatePartialToDateString(csl.accessed) || undefined,
         },
         website: {
           name: csl["title-short"] || undefined,
